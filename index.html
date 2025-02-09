@@ -1,0 +1,282 @@
+<html>
+<head>
+<style>
+html, body {
+  margin: 0;
+}
+</style>
+<script>
+
+
+function loadSprites(files, completionHandler){
+	var numLoaded = 0;
+	var numError = 0;
+	var sprites = {};
+	var checkDone = function(){
+		if (numLoaded + numError == files.length){
+			completionHandler(sprites, numLoaded, numError);
+		}
+	}
+	for (let file of files){
+		let img = new Image();		
+		img.src = file + ".png";
+		sprites[file] = img;
+		img.onload = function () {						
+			numLoaded++;			
+			checkDone();
+		};
+		img.onerror = function () {						
+			numError++;
+			checkDone();
+		};
+	}
+}
+
+const Actions = {
+	Idle: 0,
+	Up: 1,
+	Down: 2,
+	Left: 3,
+	Right: 4,
+	Throw: 5
+}
+
+class Keyboard{
+	constructor(){
+		this.desiredAction = Actions.Idle;		
+		this.directionBitsPressed = 0;
+		//Chooses action according to what direction buttons are pressed. If more than one, we set to idle, if 1,2,4,8 we set to appropriate direction
+		this.actionPerDirectionBits = [Actions.Idle, Actions.Down, Actions.Up, Actions.Idle, Actions.Left, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Right, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle];
+		
+		document.addEventListener('keydown', (ev) => {
+			this.directionBitsPressed = this.directionBitsPressed | this.getDirectionBit(ev);
+			
+			if (ev.key == "Space" || ev.keyCode == 32){
+				this.desiredAction = Actions.Throw;
+			}
+			
+			ev.preventDefault();    
+			return false;
+		}, false);
+		
+		document.addEventListener('keyup', (ev) => {
+			this.directionBitsPressed = this.directionBitsPressed & ~this.getDirectionBit(ev);
+			ev.preventDefault();
+			return false;
+		}, false);
+	}
+
+	getDirectionBit(ev) {
+		return (ev.key == "ArrowDown"  || ev.keyCode == 83 || ev.keyCode == 40) ? 1 
+			 : (ev.key == "ArrowUp"    || ev.keyCode == 87 || ev.keyCode == 38) ? 2
+			 : (ev.key == "ArrowLeft"  || ev.keyCode == 65 || ev.keyCode == 37) ? 4
+			 : (ev.key == "ArrowRight" || ev.keyCode == 68 || ev.keyCode == 39) ? 8 
+			 : 0;
+	}
+	
+	getDesiredAction(){
+		return this.actionPerDirectionBits[this.directionBitsPressed];
+	}
+}
+
+class Level{
+	constructor(map, width, ctx, sprites){
+		this.map = map;
+		this.width = width;
+		this.ctx = ctx;
+		this.sprites = sprites;
+	}
+
+    at(x,y){
+		return this.map[x + y * this.width];
+	}
+
+	atCoords(x,y){
+		return this.at(Math.floor(x/64), Math.floor(y/64));
+	}
+
+	drawTile(x,y){
+		this.ctx.drawImage(this.sprites["tile"], 0, 0, 64, 84, x * 64, y * 64 - 20, 64, 84);
+	}
+
+	drawFloor(x,y){
+		this.ctx.beginPath();
+		this.ctx.rect(x*64, y*64, 64, 64);
+		this.ctx.stroke();
+	}
+}
+
+class Bomberman{
+	constructor(x, y, ctx, controller, sprites){
+		this.x = x;
+		this.y = y;
+		this.ctx = ctx;
+		this.controller = controller;
+		this.direction = 1;
+		this.sprites = sprites;
+		this.frameTimeElapsed = 0;
+		this.frame = 0;
+		
+		this.frameDuration = 60;
+		this.pixelsPerMs = 200 / 1000;
+	}
+	
+	update(dt, level){
+		this.frameTimeElapsed += dt;
+						
+		if (this.frameTimeElapsed > this.frameDuration){
+			this.frameTimeElapsed = 0;
+			this.frame = (this.frame + 1) % 10;
+		}
+		
+		let action = this.controller.getDesiredAction();
+		
+		//Collision Detection logic
+		if (  (action == Actions.Right && level.atCoords(this.x + 25, this.y) == "X")
+	        ||(action == Actions.Left  && level.atCoords(this.x - 25, this.y) == "X")
+		){			
+			 action = ((this.y) % 64 < 32) ? Actions.Up : Actions.Down;
+		}else{
+		
+			if (  (action == Actions.Down && level.atCoords(this.x, this.y + 10) == "X")
+			){			
+				action = (this.x % 64 < 32) ? Actions.Left : Actions.Right;
+			}
+
+			if (  (action == Actions.Down && level.atCoords(this.x + 25, this.y + 10) == "X")
+			){			
+				action = ((this.x+25) % 64 < 32) ? Actions.Left : Actions.Right;
+			}
+
+			if (  (action == Actions.Down && level.atCoords(this.x - 25, this.y + 10) == "X")
+			){			
+				action = ((this.x-25) % 64 < 32) ? Actions.Left : Actions.Right;
+			}
+			
+			if (  (action == Actions.Up && level.atCoords(this.x, this.y - 10) == "X")
+			){			
+				action = (this.x % 64 < 32) ? Actions.Left : Actions.Right;
+			}
+
+			if (  (action == Actions.Up && level.atCoords(this.x + 25, this.y - 10) == "X")
+			){			
+				action = ((this.x+25) % 64 < 32) ? Actions.Left : Actions.Right;
+			}
+
+			if (  (action == Actions.Up && level.atCoords(this.x - 25, this.y - 10) == "X")
+			){			
+				action = ((this.x-25) % 64 < 32) ? Actions.Left : Actions.Right;
+			}
+		}
+		const directionBasedOnAction = [1, 3, 1, 2, 0];		
+		const dXBasedOnAction        = [0 ,0, 0,-1,+1];
+		const dYBasedOnAction        = [0,-1,+1, 0, 0];
+		
+		this.direction = directionBasedOnAction[action];
+			
+		if (action == Actions.Idle){
+			this.direction = 1;
+			this.frame = 2;
+		}
+		
+		this.x += dXBasedOnAction[action] * dt * this.pixelsPerMs;
+		this.y += dYBasedOnAction[action] * dt * this.pixelsPerMs;
+	}
+	
+	draw(){		
+		this.drawBomberman(this.frame, this.direction, 0);
+		
+		this.ctx.strokeStyle = "red";
+		this.ctx.beginPath();
+		this.ctx.rect(this.x, this.y,2,2);
+		this.ctx.stroke();
+	}
+	
+	drawBomberman(frame, direction, holding){
+		const frameOrder = [0,1,2,3,4,4,3,2,1,0];
+		let f = frameOrder[frame] + direction * 5 + holding * 20;
+		this.ctx.drawImage(this.sprites["bomberman"], 64 * (f % 8), 96 * Math.floor(f / 8), 64, 96, this.x - 32, this.y - 90, 64, 96);
+	}
+}
+
+class Game {
+
+	setSprites(sprites){
+		this.sprites = sprites;
+	}
+	
+	start(){
+	    this.canvas = document.getElementById("MyCanvas");
+		this.ctx = this.canvas.getContext("2d");
+		this.controller = new Keyboard();
+		
+		this.canvas.addEventListener('contextmenu', function(ev) {
+			ev.preventDefault();    
+			return false;
+		}, false);		
+		
+		this.tick = 0;
+		this.tFrame = 0;
+		
+		setInterval(()=>window.requestAnimationFrame((time)=>this.draw(this.ctx, time)), 16);
+		
+		this.level = new Level(
+			    "X X X X X X X X"
+               + "               "
+		       + "X X X X X X X X"
+			   + "               "
+		       + "X X X X X X X X"
+			   + "               "
+		       + "X X X   X X X X"
+			   + "               "
+		       + "X X X X X X X X", 15, this.ctx, this.sprites
+		);
+		
+		this.bomberman = new Bomberman(100,100,this.ctx, this.controller, this.sprites);
+	}
+	
+	
+
+	
+	draw(ctx, time){
+		let dt = time - (this.prevTime ?? time);
+		this.prevTime = time;
+		
+		this.bomberman.update(dt, this.level)
+		
+		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);		
+		
+		for (let yy = 0; yy < 10; yy += 1){
+			for (let xx = 0; xx < 12; xx += 1){
+				if (this.level.at(xx, yy) == 'X')
+					this.level.drawTile(xx,yy);
+			}
+
+			if(this.bomberman.y> yy *64 && this.bomberman.y <= (yy+1) *64){				
+				this.level.drawFloor(Math.floor(this.bomberman.x/64),Math.floor(this.bomberman.y/64));			
+				this.bomberman.draw();
+			}
+			
+		}
+		
+	}
+}
+
+var game = new Game();
+
+
+loadSprites(["bomberman", "tile"], 
+	(sprites, succeeded,failed)=>{	
+		game.setSprites(sprites);
+		game.start();
+	}
+);
+
+
+</script>
+</head>
+
+<body>
+<canvas id="MyCanvas" width="768" height="576" style="border:1px solid #000000; background-color:#888888;"></canvas>
+</body>
+</html>
