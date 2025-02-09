@@ -43,7 +43,7 @@ const Actions = {
 
 class Keyboard{
 	constructor(){
-		this.desiredAction = Actions.Idle;		
+		this.spaceDown = false;
 		this.directionBitsPressed = 0;
 		//Chooses action according to what direction buttons are pressed. If more than one, we set to idle, if 1,2,4,8 we set to appropriate direction
 		this.actionPerDirectionBits = [Actions.Idle, Actions.Down, Actions.Up, Actions.Idle, Actions.Left, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Right, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle, Actions.Idle];
@@ -52,7 +52,7 @@ class Keyboard{
 			this.directionBitsPressed = this.directionBitsPressed | this.getDirectionBit(ev);
 			
 			if (ev.key == "Space" || ev.keyCode == 32){
-				this.desiredAction = Actions.Throw;
+				this.spaceDown = true;
 			}
 			
 			ev.preventDefault();    
@@ -61,6 +61,11 @@ class Keyboard{
 		
 		document.addEventListener('keyup', (ev) => {
 			this.directionBitsPressed = this.directionBitsPressed & ~this.getDirectionBit(ev);
+
+			if (ev.key == "Space" || ev.keyCode == 32){
+				this.spaceDown = false;
+			}
+
 			ev.preventDefault();
 			return false;
 		}, false);
@@ -81,7 +86,7 @@ class Keyboard{
 
 class Level{
 	constructor(map, width, ctx, sprites){
-		this.map = map;
+		this.map = map.split("");
 		this.width = width;
 		this.ctx = ctx;
 		this.sprites = sprites;
@@ -93,6 +98,10 @@ class Level{
 
 	atCoords(x,y){
 		return this.at(Math.floor(x/64), Math.floor(y/64));
+	}
+
+	setAtCoords(x, y, v){
+		this.map[Math.floor(x/64) + Math.floor(y/64) * this.width] = v;
 	}
 
 	drawTile(x,y){
@@ -221,7 +230,7 @@ class Game {
 		setInterval(()=>window.requestAnimationFrame((time)=>this.draw(this.ctx, time)), 16);
 		
 		this.level = new Level(
-			    "X X X X X X X X"
+			     "X X X X X X X X"
                + "               "
 		       + "X X X X X X X X"
 			   + "               "
@@ -242,14 +251,24 @@ class Game {
 		let dt = time - (this.prevTime ?? time);
 		this.prevTime = time;
 		
-		this.bomberman.update(dt, this.level)
+		this.bomberman.update(dt, this.level);
+
+		if (this.controller.spaceDown){
+			this.controller.spaceDown = false;
+			this.level.setAtCoords(this.bomberman.x, this.bomberman.y, 'o');
+		}
 		
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);		
 		
 		for (let yy = 0; yy < 10; yy += 1){
 			for (let xx = 0; xx < 12; xx += 1){
-				if (this.level.at(xx, yy) == 'X')
+				let s = this.level.at(xx, yy);
+				if (s == 'X')
 					this.level.drawTile(xx,yy);
+
+				if (s == 'o'){
+					this.ctx.drawImage(this.sprites["bomb"], 0, 0, 64, 64, 64 * xx + 2 , 64 * yy - 10, 64, 64);
+				}
 			}
 
 			if(this.bomberman.y> yy *64 && this.bomberman.y <= (yy+1) *64){				
@@ -257,15 +276,15 @@ class Game {
 				this.bomberman.draw();
 			}
 			
-		}
-		
+		}				
+
 	}
 }
 
 var game = new Game();
 
 
-loadSprites(["bomberman", "tile"], 
+loadSprites(["bomberman", "tile", "bomb"], 
 	(sprites, succeeded,failed)=>{	
 		game.setSprites(sprites);
 		game.start();
