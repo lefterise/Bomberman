@@ -208,6 +208,44 @@ class Bomberman{
 	}
 }
 
+class Explosion{
+	constructor(ctx, sprites){
+		this.ctx = ctx;
+		this.sprites = sprites;
+		this.frameTimeElapsed = 0;
+		this.frame = 0;
+		this.frames = [0,1,2,3,4,5,6,5,4,3,2,1,0];
+	}
+	
+	update(dt){
+		this.frameTimeElapsed += dt;
+						
+		if (this.frameTimeElapsed > 75){
+			this.frameTimeElapsed = 0;
+			this.frame = (this.frame + 1) % this.frames.length;
+		}
+	}
+	
+	draw(x,y,r){		
+		this.drawPart(x +    0,  y - 64*r, 0);     //up
+		this.drawPart(x +    0,  y + 0   , 2);     //cross
+		this.drawPart(x +    0,  y + 64*r, 3);     //down		
+		this.drawPart(x - 64*r,  y + 0   , 4);     //left
+		this.drawPart(x + 64*r,  y + 0   , 6);     //right
+		
+		for(let i=1; i<r; ++i){
+			this.drawPart(x +    0,  y - 64*i, 1);
+			this.drawPart(x +    0,  y + 64*i, 1);
+			this.drawPart(x - 64*i,  y + 0   , 5);
+			this.drawPart(x + 64*i,  y + 0   , 5);
+		}
+	}
+	
+	drawPart(x,y, part){
+		this.ctx.drawImage(this.sprites["explosion"], 128 * this.frames[this.frame], 128*part, 128, 128, x, y, 64, 64);
+	}
+}
+
 class Game {
 
 	setSprites(sprites){
@@ -242,6 +280,7 @@ class Game {
 		);
 		
 		this.bomberman = new Bomberman(100,100,this.ctx, this.controller, this.sprites);
+		this.explosion = new Explosion(this.ctx, this.sprites);
 	}
 	
 	
@@ -260,6 +299,9 @@ class Game {
 		
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);		
 		
+		this.explosion.update(dt);
+		this.explosion.draw(192,192,1);
+		
 		for (let yy = 0; yy < 10; yy += 1){
 			for (let xx = 0; xx < 12; xx += 1){
 				let s = this.level.at(xx, yy);
@@ -276,7 +318,7 @@ class Game {
 				this.bomberman.draw();
 			}
 			
-		}				
+		}		
 
 	}
 }
@@ -284,7 +326,7 @@ class Game {
 var game = new Game();
 
 
-loadSprites(["bomberman", "tile", "bomb"], 
+loadSprites(["bomberman", "tile", "bomb", "explosion"], 
 	(sprites, succeeded,failed)=>{	
 		game.setSprites(sprites);
 		game.start();
@@ -296,6 +338,6 @@ loadSprites(["bomberman", "tile", "bomb"],
 </head>
 
 <body>
-<canvas id="MyCanvas" width="768" height="576" style="border:1px solid #000000; background-color:#888888;"></canvas>
+<canvas id="MyCanvas" width="896" height="896" style="background-color:#888888;"></canvas>
 </body>
 </html>
