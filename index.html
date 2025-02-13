@@ -209,24 +209,37 @@ class Bomberman{
 }
 
 class Explosion{
-	constructor(ctx, sprites){
+	constructor(x, y, radius, ctx, sprites, completionCallback){
 		this.ctx = ctx;
 		this.sprites = sprites;
 		this.frameTimeElapsed = 0;
 		this.frame = 0;
 		this.frames = [0,1,2,3,4,5,6,5,4,3,2,1,0];
+		this.x = x;
+		this.y = y;
+		this.radius = radius;
+		this.completionCallback = completionCallback;
 	}
-	
+		
 	update(dt){
 		this.frameTimeElapsed += dt;
 						
 		if (this.frameTimeElapsed > 75){
 			this.frameTimeElapsed = 0;
-			this.frame = (this.frame + 1) % this.frames.length;
+			this.frame = this.frame + 1
+			if (this.frame == this.frames.length){
+				this.completionCallback(this);
+			}
 		}
 	}
 	
-	draw(x,y,r){		
+	draw(){
+		let x=this.x;
+		let y=this.y;
+		let r=this.radius;
+
+		//todo: don't explode through walls
+
 		this.drawPart(x +    0,  y - 64*r, 0);     //up
 		this.drawPart(x +    0,  y + 0   , 2);     //cross
 		this.drawPart(x +    0,  y + 64*r, 3);     //down		
@@ -243,6 +256,74 @@ class Explosion{
 	
 	drawPart(x,y, part){
 		this.ctx.drawImage(this.sprites["explosion"], 128 * this.frames[this.frame], 128*part, 128, 128, x, y, 64, 64);
+	}
+}
+
+class Bomb{
+	constructor(x,y,r,completionCallback){
+		this.x = x;
+		this.y = y;
+		this.r = r;
+		this.time = 0;
+		this.completionCallback = completionCallback;
+	}
+
+	update(dt){
+		this.time += dt;
+		if (this.time > 3000){
+			this.completionCallback(this);
+		}
+	}
+}
+
+class BombManager{
+	constructor(ctx, sprites){
+		this.ctx = ctx;
+		this.sprites = sprites;		
+		this.bombs = [];
+		this.explosions = [];
+		this.removalCallback = (explosion)=>this.explosions.splice(this.explosions.indexOf(explosion),1);
+		
+		this.explosionCallback = (bomb)=>
+		{
+			this.explosions.push(new Explosion(64*bomb.x, 64*bomb.y, bomb.r, this.ctx, this.sprites, this.removalCallback));
+			this.bombs.splice(this.bombs.indexOf(bomb),1);
+			this.triggerAdjucentBombs(bomb.x, bomb.y, bomb.r);
+		}
+		
+	}
+
+	triggerAdjucentBombs(x,y,r){
+		//todo: must explode through walls
+		for(let bomb of this.bombs){
+			if (Math.abs(bomb.x - x) <= r && Math.abs(bomb.y - y) <= r){
+				this.explosionCallback(bomb);
+			}
+		}
+	}
+
+	addBomb(x,y,r){
+		let alreadyExists = this.bombs.reduce((acc,bomb)=>(acc || bomb.x == x && bomb.y==y), false);
+		if (alreadyExists) return;
+		this.bombs.push(new Bomb(x,y,r,this.explosionCallback));
+	}
+
+	update(dt){
+		for (let explosion of this.explosions){
+			explosion.update(dt);
+		}
+		for(let bomb of this.bombs){
+			bomb.update(dt);
+		}
+	}
+
+	draw(){
+		for (let explosion of this.explosions){		
+			explosion.draw();
+		}
+		for(let bomb of this.bombs){
+			this.ctx.drawImage(this.sprites["bomb"], 0, 0, 64, 64, 64 * bomb.x + 2 , 64 * bomb.y - 10, 64, 64);
+		}
 	}
 }
 
@@ -279,8 +360,8 @@ class Game {
 		       + "X X X X X X X X", 15, this.ctx, this.sprites
 		);
 		
-		this.bomberman = new Bomberman(100,100,this.ctx, this.controller, this.sprites);
-		this.explosion = new Explosion(this.ctx, this.sprites);
+		this.bombManager = new BombManager(this.ctx, this.sprites);
+		this.bomberman = new Bomberman(100,100,this.ctx, this.controller, this.sprites);		
 	}
 	
 	
@@ -294,23 +375,28 @@ class Game {
 
 		if (this.controller.spaceDown){
 			this.controller.spaceDown = false;
-			this.level.setAtCoords(this.bomberman.x, this.bomberman.y, 'o');
+			//this.level.setAtCoords(this.bomberman.x, this.bomberman.y, 'o');
+			
+			let xx = Math.floor(this.bomberman.x/64);
+			let yy = Math.floor(this.bomberman.y/64);
+
+			this.bombManager.addBomb(xx,yy,2);
 		}
 		
 		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);		
 		
-		this.explosion.update(dt);
-		this.explosion.draw(192,192,1);
-		
+		this.bombManager.update(dt);
+		this.bombManager.draw()
+				
 		for (let yy = 0; yy < 10; yy += 1){
 			for (let xx = 0; xx < 12; xx += 1){
 				let s = this.level.at(xx, yy);
 				if (s == 'X')
 					this.level.drawTile(xx,yy);
 
-				if (s == 'o'){
-					this.ctx.drawImage(this.sprites["bomb"], 0, 0, 64, 64, 64 * xx + 2 , 64 * yy - 10, 64, 64);
-				}
+				//if (s == 'o'){
+				//	this.ctx.drawImage(this.sprites["bomb"], 0, 0, 64, 64, 64 * xx + 2 , 64 * yy - 10, 64, 64);
+				//}
 			}
 
 			if(this.bomberman.y> yy *64 && this.bomberman.y <= (yy+1) *64){				
