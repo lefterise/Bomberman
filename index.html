@@ -108,8 +108,6 @@ class Level{
 		this.map = map.split("");
 		this.width = width;
 		this.height = Math.floor(this.map.length / this.width);
-		this.ctx = ctx;
-		this.sprites = sprites;
 	}
 	
 	toPoint(x,y){
@@ -127,11 +125,23 @@ class Level{
 	atCoords(x,y){
 		return this.at(Math.floor(x/64), Math.floor(y/64));
 	}
+	
+	set(x, y, v){
+		this.map[x + y * this.width] = v;
+	}
+
 
 	setAtCoords(x, y, v){
 		this.map[Math.floor(x/64) + Math.floor(y/64) * this.width] = v;
 	}
+}
 
+class LevelRenderer{
+	constructor(ctx, sprites){
+		this.ctx = ctx;
+		this.sprites = sprites;
+	}
+	
 	drawTile(x,y,s){
 		this.ctx.drawImage(this.sprites["tile"], 64 * s, 0, 64, 84, x * 64, y * 64 - 20, 64, 84);
 		
@@ -326,17 +336,20 @@ class Explosion{
 		}
 	}
 
-	visitBlastRadius(callback){
+	visitBlastRadius(callback, firstCollisionCallback){
 		callback(this.x, this.y);
-		this.visitRay( 0,-1, callback);
-		this.visitRay( 0,+1, callback);
-		this.visitRay(-1, 0, callback);
-		this.visitRay(+1, 0, callback);
+		this.visitRay( 0,-1, callback, firstCollisionCallback);
+		this.visitRay( 0,+1, callback, firstCollisionCallback);
+		this.visitRay(-1, 0, callback, firstCollisionCallback);
+		this.visitRay(+1, 0, callback, firstCollisionCallback);
 	}
 
-	visitRay(dx, dy, callback){
+	visitRay(dx, dy, callback, firstCollisionCallback){
 		for(let i=1; i<=this.radius; ++i){
-			if (this.level.at(this.x + dx * i, this.y + dy * i) != ' ') return;
+			if (this.level.at(this.x + dx * i, this.y + dy * i) != ' ') {
+				firstCollisionCallback(this.x + dx * i, this.y + dy * i);
+				return;
+			}
 			callback(this.x + dx * i, this.y + dy * i);
 		}
 	}
@@ -380,6 +393,43 @@ class Bomb{
 	}
 }
 
+function cloneDeep(value, seen = new WeakMap()) {
+  // Handle primitive values and null
+  if (typeof value !== "object" || value === null) {
+    return value;
+  }
+
+  // Handle functions (copy as a method)
+  if (typeof value === "function") {
+    return value.bind({}); // Returns a new function instance
+  }
+
+  // Handle circular references
+  if (seen.has(value)) {
+    return seen.get(value);
+  }
+
+  // Handle Arrays
+  if (Array.isArray(value)) {
+    const arrCopy = [];
+    seen.set(value, arrCopy);
+    value.forEach((item, index) => {
+      arrCopy[index] = cloneDeep(item, seen);
+    });
+    return arrCopy;
+  }
+
+  // Handle Objects (including methods)
+  const objCopy = Object.create(Object.getPrototypeOf(value)); // Preserve prototype chain
+  seen.set(value, objCopy);
+
+  Object.keys(value).forEach((key) => {
+    objCopy[key] = cloneDeep(value[key], seen);
+  });
+
+  return objCopy;
+}
+
 class BombManager{
 	constructor(ctx, sprites, level){
 		this.ctx = ctx;
@@ -390,12 +440,17 @@ class BombManager{
 		this.level = level;
 		this.explosionCallback = (bomb)=>
 		{
-			let explosion = new Explosion(bomb.x, bomb.y, bomb.r, this.ctx, this.sprites, this.removalCallback, this.level);
+			let explosion = new Explosion(bomb.x, bomb.y, bomb.r, this.ctx, this.sprites, this.removalCallback, cloneDeep(this.level)); //we copy the level because we want to preserve the explosion radius to the previous wall layout
 			this.explosions.push(explosion);
 			this.bombs.splice(this.bombs.indexOf(bomb),1);
 			//trigger chain explosions
 			explosion.visitBlastRadius((x,y)=>{
 				this.bombs.filter(bomb => bomb.x == x && bomb.y == y).forEach(bomb => this.explosionCallback(bomb));
+			},
+			(x,y)=>{
+				if (this.level.at(x,y) == 'x'){
+					this.level.set(x,y,' ');
+				}
 			});
 		}		
 	}
@@ -420,7 +475,10 @@ class BombManager{
 			explosion.draw();
 		}
 		for(let bomb of this.bombs){
-			this.ctx.drawImage(this.sprites["bomb"], 0, 0, 64, 64, 64 * bomb.x + 2 , 64 * bomb.y - 10, 64, 64);
+			let size = 64 +  8 * Math.sin(bomb.time * Math.PI * 6 / 3000);
+			let sizeOffset = 8 * Math.sin(bomb.time * Math.PI * 6 / 3000) / 2; 
+			
+			this.ctx.drawImage(this.sprites["bomb"], 0, 0, 64, 64, 64 * bomb.x + 2 -sizeOffset, 64 * bomb.y - 10 -sizeOffset, size, size);
 		}
 	}
 }
@@ -455,8 +513,10 @@ class Game {
 			   + "      x     x x"
 		       + "X X X X X X X X"
 			   + "  xxxxx     x x"
-		       + "X X X X X X XxX", 15, this.ctx, this.sprites
+		       + "X X X X X X XxX", 15
 		);
+		
+		this.levelRenderer = new LevelRenderer(this.ctx, this.sprites);
 		
 		this.bombManager = new BombManager(this.ctx, this.sprites, this.level);
 		this.bomberman = new Bomberman(100,100,this.ctx, this.controller, this.sprites);		
@@ -486,13 +546,13 @@ class Game {
 			for (let xx = 0; xx < this.level.width; xx += 1){
 				let s = this.level.at(xx, yy);
 				if (s == 'X')
-					this.level.drawTile(xx,yy,0);
+					this.levelRenderer.drawTile(xx,yy,0);
 				if (s == 'x')
-					this.level.drawTile(xx,yy,1);
+					this.levelRenderer.drawTile(xx,yy,1);
 			}
 
 			if(this.bomberman.y> yy *64 && this.bomberman.y <= (yy+1) *64){				
-				this.level.drawFloor(Math.floor(this.bomberman.x/64),Math.floor(this.bomberman.y/64));			
+				this.levelRenderer.drawFloor(Math.floor(this.bomberman.x/64),Math.floor(this.bomberman.y/64));			
 				this.bomberman.draw();
 			}
 			
