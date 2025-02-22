@@ -84,12 +84,40 @@ class Keyboard{
 	}
 }
 
+class Point{
+	constructor(x,y){
+		this.x = x;
+		this.y = y;
+	}
+	
+	add(p){
+		return new Point(this.x + p.x, this.y + p.y);
+	}
+	
+	subtract(p){
+		return new Point(this.x - p.x, this.y - p.y);
+	}
+	
+	toString(){
+		return "(" + this.x + ", " + this.y + ")";
+	}
+}
+
 class Level{
 	constructor(map, width, ctx, sprites){
 		this.map = map.split("");
 		this.width = width;
+		this.height = Math.floor(this.map.length / this.width);
 		this.ctx = ctx;
 		this.sprites = sprites;
+	}
+	
+	toPoint(x,y){
+		return new Point(Math.floor(x/64), Math.floor(y/64));
+	}
+	
+	atPoint(p){
+		return this.map[p.x + p.y * this.width];
 	}
 
     at(x,y){
@@ -104,8 +132,13 @@ class Level{
 		this.map[Math.floor(x/64) + Math.floor(y/64) * this.width] = v;
 	}
 
-	drawTile(x,y){
-		this.ctx.drawImage(this.sprites["tile"], 0, 0, 64, 84, x * 64, y * 64 - 20, 64, 84);
+	drawTile(x,y,s){
+		this.ctx.drawImage(this.sprites["tile"], 64 * s, 0, 64, 84, x * 64, y * 64 - 20, 64, 84);
+		
+		//this.ctx.fillStyle  = s == 0 ? "orange" : "yellow";
+		//this.ctx.beginPath();
+		//this.ctx.rect(x*64, y*64, 64, 64);
+		//this.ctx.fill();
 	}
 
 	drawFloor(x,y){
@@ -128,6 +161,29 @@ class Bomberman{
 		
 		this.frameDuration = 60;
 		this.pixelsPerMs = 200 / 1000;
+		
+		this.bounds = [
+			{action: Actions.Down,  x:  0, y: 10},
+			{action: Actions.Down,  x: 25, y: 10},
+			{action: Actions.Down,  x:-25, y: 10},
+			{action: Actions.Up,    x:  0, y: -10},
+			{action: Actions.Up,    x: 25, y: -10},
+			{action: Actions.Up,    x:-25, y: -10},
+			{action: Actions.Left,  x:-25, y:   0},
+			{action: Actions.Left,  x:-25, y:  10},
+			{action: Actions.Left,  x:-25, y: -10},
+			{action: Actions.Right, x: 25, y:   0},
+			{action: Actions.Right, x: 25, y:  10},
+			{action: Actions.Right, x: 25, y: -10}
+		];
+		
+		this.actionToDelta = [
+			null,
+			new Point( 0, -1),
+			new Point( 0, +1),
+			new Point(-1,  0),
+			new Point(+1,  0)
+		];
 	}
 	
 	update(dt, level){
@@ -139,47 +195,75 @@ class Bomberman{
 		}
 		
 		let action = this.controller.getDesiredAction();
-		
-		//Collision Detection logic
-		if (  (action == Actions.Right && level.atCoords(this.x + 25, this.y) == "X")
-	        ||(action == Actions.Left  && level.atCoords(this.x - 25, this.y) == "X")
-		){			
-			 action = ((this.y) % 64 < 32) ? Actions.Up : Actions.Down;
-		}else{
-		
-			if (  (action == Actions.Down && level.atCoords(this.x, this.y + 10) == "X")
-			){			
-				action = (this.x % 64 < 32) ? Actions.Left : Actions.Right;
-			}
-
-			if (  (action == Actions.Down && level.atCoords(this.x + 25, this.y + 10) == "X")
-			){			
-				action = ((this.x+25) % 64 < 32) ? Actions.Left : Actions.Right;
-			}
-
-			if (  (action == Actions.Down && level.atCoords(this.x - 25, this.y + 10) == "X")
-			){			
-				action = ((this.x-25) % 64 < 32) ? Actions.Left : Actions.Right;
-			}
 			
-			if (  (action == Actions.Up && level.atCoords(this.x, this.y - 10) == "X")
-			){			
-				action = (this.x % 64 < 32) ? Actions.Left : Actions.Right;
-			}
-
-			if (  (action == Actions.Up && level.atCoords(this.x + 25, this.y - 10) == "X")
-			){			
-				action = ((this.x+25) % 64 < 32) ? Actions.Left : Actions.Right;
-			}
-
-			if (  (action == Actions.Up && level.atCoords(this.x - 25, this.y - 10) == "X")
-			){			
-				action = ((this.x-25) % 64 < 32) ? Actions.Left : Actions.Right;
-			}
-		}
-		const directionBasedOnAction = [1, 3, 1, 2, 0];		
 		const dXBasedOnAction        = [0 ,0, 0,-1,+1];
 		const dYBasedOnAction        = [0,-1,+1, 0, 0];
+
+		let futureX = this.x;
+		let futureY = this.y;
+		
+		let repeat = false;
+		let iterations = 0;
+		do{
+			iterations++;
+			futureX = this.x + dXBasedOnAction[action] * dt * this.pixelsPerMs;
+			futureY = this.y + dYBasedOnAction[action] * dt * this.pixelsPerMs;
+
+			let checkX = futureX;
+			let checkY = futureY;
+
+			//Ensure future position doesn't end inside non-floor tile and snap 1 pixel before that solid tile
+			for (let bound of this.bounds){
+				if ((action == bound.action && level.atCoords(futureX + bound.x, futureY + bound.y) != " ")){
+					if (action == Actions.Right){					
+						futureX = Math.floor((futureX + bound.x) / 64) * 64 - bound.x - 1;
+					}
+					
+					if (action == Actions.Left){
+						futureX = Math.floor((futureX + bound.x) / 64) * 64 + 64 - bound.x;
+					}
+					
+					if (action == Actions.Down){					
+						futureY = Math.floor((futureY + bound.y) / 64) * 64 - bound.y - 1;
+					}
+					
+					if (action == Actions.Up){					
+						futureY = Math.floor((futureY + bound.y) / 64) * 64 +64 - bound.y;
+					}
+				}
+			}
+
+			//If standing near a corner, move towards the direction of the corner
+			for (let bound of this.bounds){
+				let collisionPosition = level.toPoint(checkX + bound.x, checkY + bound.y);
+				
+				if ((action == bound.action && level.atPoint(collisionPosition) != " ")){
+					let alternativeAction = Actions.Idle;
+						
+					if (action == Actions.Up || action == Actions.Down)
+						alternativeAction = ((futureX + bound.x) % 64 < 32) ? Actions.Left : Actions.Right;
+					else
+						alternativeAction = ((futureY + bound.y) % 64 < 32) ? Actions.Up : Actions.Down;
+					
+					let alternativeGoal = collisionPosition.add(this.actionToDelta[alternativeAction])
+					let alternativePosition = alternativeGoal.subtract(this.actionToDelta[action]);								
+					
+					if (  level.atPoint(alternativePosition) == " " 
+					   && level.atPoint(alternativeGoal) == " "){
+						action = alternativeAction;
+						
+						repeat = true;
+			
+						break;
+					} else{
+						action = Actions.Idle;
+					}
+				}
+			}			
+		} while(repeat && iterations < 2);
+		
+		const directionBasedOnAction = [1, 3, 1, 2, 0];		
+
 		
 		this.direction = directionBasedOnAction[action];
 			
@@ -188,17 +272,25 @@ class Bomberman{
 			this.frame = 2;
 		}
 		
-		this.x += dXBasedOnAction[action] * dt * this.pixelsPerMs;
-		this.y += dYBasedOnAction[action] * dt * this.pixelsPerMs;
+		this.x = futureX;
+		this.y = futureY;
 	}
 	
 	draw(){		
 		this.drawBomberman(this.frame, this.direction, 0);
-		
+				
 		this.ctx.strokeStyle = "red";
-		this.ctx.beginPath();
+		this.ctx.beginPath();		
 		this.ctx.rect(this.x, this.y,2,2);
 		this.ctx.stroke();
+				
+		this.ctx.strokeStyle = "green";
+		this.ctx.beginPath();		
+		for (let bound of this.bounds){
+			this.ctx.rect(this.x + bound.x, this.y + bound.y,2,2);
+		}
+		this.ctx.stroke();
+		this.ctx.strokeStyle = "black";
 	}
 	
 	drawBomberman(frame, direction, holding){
@@ -356,14 +448,14 @@ class Game {
 		
 		this.level = new Level(
 			     "X X X X X X X X"
-               + "               "
+               + "   xx    xx   x"
+		       + "X XxX X X X X X"
+			   + "    x x     x x"
 		       + "X X X X X X X X"
-			   + "               "
+			   + "      x     x x"
 		       + "X X X X X X X X"
-			   + "               "
-		       + "X X X   X X X X"
-			   + "               "
-		       + "X X X X X X X X", 15, this.ctx, this.sprites
+			   + "  xxxxx     x x"
+		       + "X X X X X X XxX", 15, this.ctx, this.sprites
 		);
 		
 		this.bombManager = new BombManager(this.ctx, this.sprites, this.level);
@@ -390,11 +482,13 @@ class Game {
 		this.bombManager.update(dt);
 		this.bombManager.draw();
 				
-		for (let yy = 0; yy < 10; yy += 1){
-			for (let xx = 0; xx < 12; xx += 1){
+		for (let yy = 0; yy < this.level.height; yy += 1){
+			for (let xx = 0; xx < this.level.width; xx += 1){
 				let s = this.level.at(xx, yy);
 				if (s == 'X')
-					this.level.drawTile(xx,yy);
+					this.level.drawTile(xx,yy,0);
+				if (s == 'x')
+					this.level.drawTile(xx,yy,1);
 			}
 
 			if(this.bomberman.y> yy *64 && this.bomberman.y <= (yy+1) *64){				
